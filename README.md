@@ -8,6 +8,8 @@ Si no es easy apply, agregar la url a un archivo externo para posteriormente hac
 
 webbrowser
 pyautogui
+cv2
+numpy
 
 1. Abrir la pagina de linkedin empleos desde el navegador predeterminado, evitando tener que meter claves y demas
 2. Escanear por simbolo de busqueda, entrar el titulo de trabajo 
