@@ -6,11 +6,13 @@ Capturar pantalla y usar opencv para ubicar y leer lo que hay? Mover mouse e ind
 EasyApply es necesario para el inicio, evitar ir a otras paginas
 Si no es easy apply, agregar la url a un archivo externo para posteriormente hacerlo manualmente.
 
+
 webbrowser
 pyautogui
 cv2
 numpy
 
+Pasos
 1. Abrir la pagina de linkedin empleos desde el navegador predeterminado, evitando tener que meter claves y demas
 2. Escanear por simbolo de busqueda, entrar el titulo de trabajo 
 2.a Escanear por simbolo de ubicacion, entrar la ubicacion | Tabulador para cambiar automaticamente cambiar
@@ -23,3 +25,9 @@ TODO
 5. Aplicacion al empleo
 6. Manejo de archivo externo para ver el progreso del bot y lo que ha hecho
 7...
+
+
+TODO
+Modularizar
+Mejorar json output
+waitDownload
