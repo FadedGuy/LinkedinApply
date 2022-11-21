@@ -1,3 +1,6 @@
 /parse_files
 *.html
 *.json
+*.log
+geckodriver
+/profile

@@ -6,11 +6,14 @@ import cv2 as cv
 import os
 from bs4 import BeautifulSoup
 import json
+import pytesseract
+from langdetect import detect
+
+from selenium import webdriver
 
 # f_AL=true means it's only showing easy apply jobs
 LINKEDIN_URL = "https://www.linkedin.com/jobs/search/?"
-LINKEDIN_EASY_APPLY = "f_AL=true"
-# As small as I could get it
+LINKEDIN_EASY_APPLY_TAG = "f_AL=true"
 IMAGES_FOLDER = "imgs/"
 FIRST_LOAD_MATCH = "contextMenu.png"
 SEARCH_ICON = "searchIcon.png"
@@ -19,8 +22,17 @@ JOB_LOAD_EASY_APPLY = "jobLoadEasy.png"
 JOB_LOAD_EXTERNAL = "jobLoadExternal.png"
 # Podria ser la flecha y los 3 puntos o solicitar y guardar, sin embargo esos cambian de tama;o
 LOADED_SEARCH = "loadedSearch.png"
+CHECKBOX_LAST_PAGE = "checkboxEasy.png"
+NEXT_SEND_BUTTON = "buttonNext.png"
+
 HTML_PARSE_FILENAME = "parse"
 JSON_PARSED_FILENAME = "out"
+
+CAPTURE_MODIFIER_X = 0
+CAPTURE_MODIFIER_Y = 250
+CAPTURE_OFFSET_X = 500
+CAPTURE_OFFSET_Y = 200
+
 SUCESS_EXIT = 0
 ERROR_EXIT = 1
 
@@ -165,6 +177,28 @@ def saveToJSON(jobs, filename):
     with open(filename+".json", "w") as f:
         f.write(jsonJobs)
 
+# Es de 1 o varias paginas? Barra de arriba con el porcentaje (si es de una pagina no lo hay) al picar en la segunda si es el caso
+# Quitar checkbox de seguir a la empresa. Checkbox solo aparece en la ultima pagina?
+
+# Elegir cv correcto en base al lenguaje
+# Verificar que todas tengan respuestas
+# Enviar solicitud
+def navEasyApplyMenu(lang):
+    lastPage = False
+    # while not lastPage:
+    #     for i in range(10):
+    #         pygui.press('tab')
+    #     coords = pygui.locateOnScreen(IMAGES_FOLDER+CHECKBOX_LAST_PAGE, confidence=0.8)
+    #     # Last page behavior
+    #     if coords is None:
+    #     # Page behavior
+    #     else:
+
+    #     lastPage = True
+
+
+    return True
+
 def apply2Job(job, loadIndicator1):
     pygui.press('enter')
     sleep(1)
@@ -182,12 +216,18 @@ def apply2Job(job, loadIndicator1):
     
     # Ver la cantidad de tab que se requieren para llegar a solicitar, el color obscurece cuando esta en tab
     if(easyApply):
-        # Es de 1 o varias paginas? 
-        # Elegir cv correcto
-        # Quitar checkbox de seguir a la empresa
-        # Verificar que todas tengan respuestas
-        # Enviar solicitud
+        coordsSS = (coords[0] + CAPTURE_MODIFIER_X, coords[1] + CAPTURE_MODIFIER_Y)
+        ss = pygui.screenshot(region=(coordsSS[0], coordsSS[1], coordsSS[0]+CAPTURE_OFFSET_X, coordsSS[1]+CAPTURE_OFFSET_Y))
+        text = pytesseract.image_to_string(ss)
+        lang = detect(text)
+
+        # Center the click a little more
+        pygui.click(coords[0]+15, coords[1]+15)
+        res = navEasyApplyMenu(lang)       
+
         job.update({'applyMethod': 'easy Apply'})
+        job.update({'languageDetected': lang})
+        job.update({'sentApplication': res})
 
     else:
         job.update({'applyMethod': 'external Page'})
@@ -218,7 +258,7 @@ def jobLoop():
             break
 
         i = i + 1
-        if(i > 4):
+        if(i > 0):
             break
 
     saveToJSON(jobs, JSON_PARSED_FILENAME)
@@ -233,7 +273,7 @@ def main():
         print("Error! Could not load page")
         exit(ERROR_EXIT)
     
-    searchJob("qa", "Irlanda")
+    searchJob("frontend", "canada")
 
     sucess, res = waitToLoad(IMAGES_FOLDER + LOADED_SEARCH, 0.85)
     if(not sucess):
