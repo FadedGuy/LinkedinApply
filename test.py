@@ -10,11 +10,12 @@ from selenium.common.exceptions import TimeoutException
 from time import sleep
 from bs4 import BeautifulSoup
 import json
+from os import rename
 
 LINKEDIN_URL = "https://www.linkedin.com/jobs/search/?"
 LINKEDIN_EASY_APPLY_TAG = "f_AL=true"
 
-JSON_PARSED_FILENAME = "result"
+JSON_PARSED_FILENAME = "result.json"
 
 SUCESS_EXIT = 0
 ERROR_EXIT = 1
@@ -56,7 +57,8 @@ def parsePage(src, jobId):
     jobsHTML = soup.find_all("li", class_="jobs-search-results__list-item")
     jobsParsed = list()
     for job in jobsHTML:
-        jobParsed = dict()
+        # Create a dictionary as to simulate JSON object
+        jobParsed = {"id": "", "jobTitle" : "", "companyName" : "", "location" : "", "applyMethod" : "", "workType" : "", "jobLink" : "", "companyLink" : "", "applicantCount" : ""}
 
         title = job.find_all("a", class_="job-card-list__title")
         if(len(title) > 0):
@@ -101,12 +103,45 @@ def parsePage(src, jobId):
     return jobsParsed
 
 
-def saveToJSON(jobs, filename):
-    jsonJobs = json.dumps(jobs, ensure_ascii=False)
+def saveToJSON(jobs, filename, new=False, backup=False):   
+    print(f"Saving new jobs to {filename}")
 
-    with open(filename+".json", "w") as f:
-        f.write(jsonJobs)
+    if new:
+        print(f"Creating new file")
+        f = open(filename, "w")
+        f.close()
 
+    jobsFile = ""
+    try:
+        with open(filename, "r") as f:
+            jobsFile = json.load(f)
+    except FileNotFoundError:
+        print(f"File doesn't exist, creating a new file with the name {filename}")
+        f = open(filename, "w")
+        f.close()
+    except json.JSONDecodeError:
+        print(f"Existing file does not contain a valid JSON object")
+    
+
+    if jobsFile == "":
+        jsonJobs = json.dumps(jobs, ensure_ascii=False)
+
+        with open(filename, "w") as f:
+            f.write(jsonJobs)
+    else:
+        for job in jobs:
+            jobsFile.append(job)
+
+        jsonJobs = json.dumps(jobsFile, ensure_ascii=False)
+        if(backup):
+            print(f"Doing a backup of {filename} to {filename+'.old'}")
+            rename(filename, filename+".old")
+
+        with open(filename, "w") as f:
+            f.write(jsonJobs)
+
+    print(f"New jobs saved to {filename}")
+        
 
 def newPageLoaded(jobElement, jobIdCnt, driver):
     print(f"Scanning page")

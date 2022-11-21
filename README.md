@@ -1,24 +1,11 @@
 LinkedIn Apply Bot
 
-Webscrapping? Posible pero aun asi requiere de interaccion.
-Capturar pantalla y usar opencv para ubicar y leer lo que hay? Mover mouse e indicar segun aplique
-
-EasyApply es necesario para el inicio, evitar ir a otras paginas
-Si no es easy apply, agregar la url a un archivo externo para posteriormente hacerlo manualmente.
-
-Tested on 1920x1080
-
 profile dir created and open to locally use only that instance and have not other access
 
-webbrowser
-pyautogui
-cv2
-numpy
-langdetect
-pytesseract
+time
 bs4
 json
-time
+selenium
 
 Pasos
 1. Abrir la pagina de linkedin empleos desde el navegador predeterminado, evitando tener que meter claves y demas
