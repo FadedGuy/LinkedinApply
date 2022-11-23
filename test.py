@@ -428,7 +428,6 @@ def applyJob(jobJSON, driver):
 
     return jobJSON
         
-
 def jobLoop(firstJobHandle, jobIdCnt, driver, jobLoopCnt):
     jobsParsed = newPageLoaded(firstJobHandle, jobIdCnt, driver)
     jobsElement = driver.find_elements(By.CLASS_NAME, "jobs-search-results__list-item")
