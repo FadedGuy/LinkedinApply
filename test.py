@@ -21,6 +21,7 @@ HTML_CURRENT_FILENAME = "parseHTML.html"
 SUCESS_EXIT = 0
 ERROR_EXIT = 1
 
+
 def waitToLoad(locator, locator_name, driver, delay=10):
     item = ""
     try:
@@ -179,6 +180,53 @@ def newPageLoaded(jobElement, jobIdCnt, driver):
     newJobs = parsePage(driver.page_source, jobIdCnt)
     return newJobs
 
+def upsellLinkedinPremium(driver):
+    print("Checking for post-apply LinkedinPremium")
+
+    upsell = waitToLoad(By.CLASS_NAME, "premium-upsell-link", driver)
+    return upsell is not None
+
+
+def easyApplyOnePage(lang, driver):
+    if not (lang == "en" or lang == "es" or lang == "fr"):
+        lang = "en"
+
+    cv_driver = waitToLoad(By.CLASS_NAME, "artdeco-button--1", driver)
+    if cv_driver is None:
+        return None
+
+    cv_driver.click()
+    cv_picker = waitToLoad(By.CLASS_NAME, "jobs-resume-picker__resume-list", driver)
+    if cv_picker is None:
+        return None
+    
+    cv_names = driver.find_elements(By.CLASS_NAME, "jobs-resume-picker__resume-label")
+    index = -1
+    for i in range(len(cv_names)):
+        text = cv_names[i].text.lower()
+
+        if lang in text:
+            index = i
+            break
+    
+    cv_picker = driver.find_elements(By.CLASS_NAME, "artdeco-button--1")
+    print(index)
+    print(len(cv_picker))
+    cv_picker[i*2].click()    
+
+    follow_company = waitToLoad(By.ID, "follow-company-checkbox", driver)
+    if follow_company is None:
+        return None
+    
+    ActionChains(driver)\
+        .move_to_element(follow_company)\
+        .click()\
+        .send_keys(Keys.TAB*3)\
+        .send_keys(Keys.ENTER)\
+        .perform()
+
+    return upsellLinkedinPremium(driver)
+
 
 def applyJob(jobJSON, driver):
     applyButton = waitToLoad(By.CLASS_NAME, "jobs-apply-button", driver)
@@ -193,6 +241,26 @@ def applyJob(jobJSON, driver):
     jobJSON['language'] = language
 
     if jobJSON['applyMethod'] == 'Easy Apply':
+        applyButton.click()
+        modal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
+        if modal is None:
+            return None
+
+        progress = waitToLoad(By.TAG_NAME, "progress", driver, 3)
+        if progress is None:
+            upsell = easyApplyOnePage(jobJSON['language'], driver)
+            if upsell is None:
+                print("Error")
+                return None
+            elif upsell == True:
+                quitButton = driver.find_element(By.CLASS_NAME, "artdeco-modal__dismiss")
+                quitButton.click()
+
+            print("One pager")
+        else:
+            print("Multiple pager")
+            exit(SUCESS_EXIT)
+            
         jobJSON['applyLink'] = "N/A"
         jobJSON['applyStatus'] = "Applied"
     else:
@@ -261,12 +329,12 @@ def main():
     profile = FirefoxProfile('./profile/')
     with webdriver.Firefox(profile) as driver:
         print(f"Opening browser")
-        driver.get(LINKEDIN_URL)
+        driver.get(LINKEDIN_URL + LINKEDIN_EASY_APPLY_TAG)
         search_bar = waitToLoad(By.CLASS_NAME, 'jobs-search-box__text-input', driver)
         if search_bar is None:
             return ERROR_EXIT
 
-        first_job = searchJob("IT", "Guadalajara", driver, search_bar)
+        first_job = searchJob("", "Mexico", driver, search_bar)
         if first_job is None:
             return ERROR_EXIT
         
