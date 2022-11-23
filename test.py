@@ -180,11 +180,27 @@ def newPageLoaded(jobElement, jobIdCnt, driver):
     newJobs = parsePage(driver.page_source, jobIdCnt)
     return newJobs
 
-def upsellLinkedinPremium(driver):
-    print("Checking for post-apply LinkedinPremium")
+# Can Upsell or just confirmation page
+def canContinue(driver):
+    sleep(0.5)
+    print("Checking for post-apply LinkedinPremium or post-apply confirmation")
+    body = waitToLoad(By.TAG_NAME, "body", driver)
+    if body is None:
+        return False
 
-    upsell = waitToLoad(By.CLASS_NAME, "premium-upsell-link", driver)
-    return upsell is not None
+    closeWindow = waitToLoad(By.CLASS_NAME, "artdeco-modal__dismiss", driver)
+    # Upsell existing
+    if closeWindow is None:
+        return False
+
+    ActionChains(driver)\
+        .move_to_element(closeWindow)\
+        .pause(0.2)\
+        .click()\
+        .pause(0.5)\
+        .perform()
+
+    return True
 
 
 def easyApplyOnePage(lang, driver):
@@ -214,24 +230,146 @@ def easyApplyOnePage(lang, driver):
     print(len(cv_picker))
     cv_picker[i*2].click()    
 
+    ActionChains(driver)\
+        .send_keys(Keys.SPACE*10)\
+        .perform()
+    
     follow_company = waitToLoad(By.ID, "follow-company-checkbox", driver)
     if follow_company is None:
         return None
     
+    # Revise to send actual click on real
     ActionChains(driver)\
-        .move_to_element(follow_company)\
-        .click()\
-        .send_keys(Keys.TAB*3)\
-        .send_keys(Keys.ENTER)\
+        .send_keys_to_element(follow_company, Keys.SPACE)\
+        .pause(0.2)\
         .perform()
+    
+    send_application = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+    if send_application is None:
+        return None
+    
+    send_application.click()
 
-    return upsellLinkedinPremium(driver)
+    return canContinue(driver)
+
+def gotoNextPage(driver, element, cnt=0):
+    if cnt < 5:            
+        ActionChains(driver)\
+                .send_keys_to_element(element, Keys.ENTER)\
+                .perform()
+            
+        newModal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
+        if newModal is None:
+            return None
+        
+        wasError = waitToLoad(By.CLASS_NAME, "fb-form-element__error-text", driver, 3)
+        if wasError is not None:
+            # NEED TO INTRODUCE ANSWER
+            # Missing number
+            # Missing checkbox
+            # Missing selection
+            print("There is an answer missing, insert answers in browser")
+            input_ans = ""
+            while input_ans != "ok":
+                input_ans = input("Type \"ok\" when answers are registered: ")
+
+            sleep(0.5)
+            next_button = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+            if next_button is None:
+                return None
+
+            gotoNextPage(driver, next_button, cnt+1)
+        
+        modal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
+        if modal is None:
+            return None
+
+        return True, modal
+
+    return False, None
+        
+
+def easyApplyMultiplePage(lang, modal, driver):
+    # Buscar boton siguiente mientras haya 100%
+    complete_percent = waitToLoad(By.TAG_NAME, "progress", driver)
+    if complete_percent is None:
+        return None
+    
+    percent = int(complete_percent.get_attribute('value'))
+    if percent != 100:
+        soup = BeautifulSoup(modal.get_attribute('innerHTML'), 'html.parser')
+        if len(soup.find_all('div', class_='jobs-document-upload__attachment')) > 0:
+            print("CV PAGE")
+            cv_driver = waitToLoad(By.CLASS_NAME, "artdeco-button--1", driver)
+            if cv_driver is None:
+                return None
+
+            cv_driver.click()
+            cv_picker = waitToLoad(By.CLASS_NAME, "jobs-resume-picker__resume-list", driver)
+            if cv_picker is None:
+                return None
+            
+            cv_names = driver.find_elements(By.CLASS_NAME, "jobs-resume-picker__resume-label")
+            index = -1
+            for i in range(len(cv_names)):
+                text = cv_names[i].text.lower()
+
+                if lang in text:
+                    index = i
+                    break
+            
+            cv_picker = driver.find_elements(By.CLASS_NAME, "artdeco-button--1")
+            print(index)
+            print(len(cv_picker))
+            cv_picker[i*2].click()    
+        
+        next_button = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+        if next_button is None:
+            return None
+
+        success, modal = gotoNextPage(driver, next_button)
+        if not success:
+            return None
+
+    else:
+        ActionChains(driver)\
+            .send_keys(Keys.SPACE*15)\
+            .perform()
+
+        sleep(0.5)
+        follow_company = waitToLoad(By.ID, "follow-company-checkbox", driver)
+        if follow_company is None:
+            return None
+        
+        # Revise to send actual click on real
+        ActionChains(driver)\
+            .send_keys_to_element(follow_company, Keys.SPACE)\
+            .pause(0.2)\
+            .perform()
+        
+        send_application = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+        if send_application is None:
+            return None
+
+        send_application.click()
+        sleep(1)
+        return canContinue(driver)
+    
+    return easyApplyMultiplePage(lang, modal, driver)
+        
 
 
 def applyJob(jobJSON, driver):
+    sleep(1)
     applyButton = waitToLoad(By.CLASS_NAME, "jobs-apply-button", driver)
-    if applyButton is None:
+    alreadyApplied = waitToLoad(By.CLASS_NAME, "artdeco-inline-feedback--success", driver)
+    if applyButton is None and alreadyApplied is None:
         return None
+    
+    if applyButton is None:
+        print("Already applied to this job! Skipping")
+        jobJSON['applyStatus'] = "Repeated"
+        return jobJSON
 
     textArea = waitToLoad(By.ID, "job-details", driver)
     if textArea is None:
@@ -239,27 +377,29 @@ def applyJob(jobJSON, driver):
 
     language = detect(textArea.text)
     jobJSON['language'] = language
-
+    
     if jobJSON['applyMethod'] == 'Easy Apply':
-        applyButton.click()
+        ActionChains(driver)\
+            .move_to_element(applyButton)\
+            .click()\
+            .pause(0.5)\
+            .perform()
+
         modal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
         if modal is None:
             return None
 
-        progress = waitToLoad(By.TAG_NAME, "progress", driver, 3)
+        isClear = False
+        progress = waitToLoad(By.TAG_NAME, "progress", driver)
         if progress is None:
-            upsell = easyApplyOnePage(jobJSON['language'], driver)
-            if upsell is None:
-                print("Error")
-                return None
-            elif upsell == True:
-                quitButton = driver.find_element(By.CLASS_NAME, "artdeco-modal__dismiss")
-                quitButton.click()
-
-            print("One pager")
+            print("Single page apply")
+            isClear = easyApplyOnePage(jobJSON['language'], driver)
         else:
-            print("Multiple pager")
-            exit(SUCESS_EXIT)
+            print("Multiple page apply")
+            isClear = easyApplyMultiplePage(jobJSON['language'], modal, driver)
+
+        if not isClear:
+            exit(ERROR_EXIT)
             
         jobJSON['applyLink'] = "N/A"
         jobJSON['applyStatus'] = "Applied"
@@ -329,12 +469,12 @@ def main():
     profile = FirefoxProfile('./profile/')
     with webdriver.Firefox(profile) as driver:
         print(f"Opening browser")
-        driver.get(LINKEDIN_URL + LINKEDIN_EASY_APPLY_TAG)
+        driver.get(LINKEDIN_URL+LINKEDIN_EASY_APPLY_TAG)
         search_bar = waitToLoad(By.CLASS_NAME, 'jobs-search-box__text-input', driver)
         if search_bar is None:
             return ERROR_EXIT
 
-        first_job = searchJob("", "Mexico", driver, search_bar)
+        first_job = searchJob("software", "Guadalajara", driver, search_bar)
         if first_job is None:
             return ERROR_EXIT
         
