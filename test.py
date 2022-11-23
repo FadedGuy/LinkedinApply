@@ -1,7 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from selenium.webdriver import Keys, ActionChains
-from selenium.webdriver.common.actions.action_builder import ActionBuilder
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -11,11 +10,13 @@ from time import sleep
 from bs4 import BeautifulSoup
 import json
 from os import rename
+from langdetect import detect
 
 LINKEDIN_URL = "https://www.linkedin.com/jobs/search/?"
 LINKEDIN_EASY_APPLY_TAG = "f_AL=true"
 
 JSON_PARSED_FILENAME = "result.json"
+HTML_CURRENT_FILENAME = "parseHTML.html"
 
 SUCESS_EXIT = 0
 ERROR_EXIT = 1
@@ -58,7 +59,7 @@ def parsePage(src, jobId):
     jobsParsed = list()
     for job in jobsHTML:
         # Create a dictionary as to simulate JSON object
-        jobParsed = {"id": "", "jobTitle" : "", "companyName" : "", "location" : "", "applyMethod" : "", "workType" : "", "jobLink" : "", "companyLink" : "", "applicantCount" : ""}
+        jobParsed = {"id": "", "jobTitle" : "", "companyName" : "", "location" : "", "applyMethod" : "", "workType" : "", "language": "", "applyLink": "", "applyStatus": "", "jobLink" : "", "companyLink" : "", "jobId": "","applicantCount" : ""}
 
         title = job.find_all("a", class_="job-card-list__title")
         if(len(title) > 0):
@@ -75,6 +76,10 @@ def parsePage(src, jobId):
             jobParsed.update({"applyMethod": "Easy Apply"})
         else:
             jobParsed.update({"applyMethod": "External"})
+
+        jobInternalId = job.find_all("div", class_="job-card-list")
+        if(len(jobInternalId) > 0):
+            jobParsed.update({"jobId": jobInternalId[0]['data-job-id']})
 
         metadata = job.find_all("li")
         for m in metadata:
@@ -120,7 +125,7 @@ def saveToJSON(jobs, filename, new=False, backup=False):
         f = open(filename, "w")
         f.close()
     except json.JSONDecodeError:
-        print(f"Existing file does not contain a valid JSON object")
+        print(f"Existing file does not contain a valid JSON object, overwriting file")
     
 
     if jobsFile == "":
@@ -168,25 +173,95 @@ def newPageLoaded(jobElement, jobIdCnt, driver):
     sleep(2)
     print(f"Page scanned")
 
-    with open("parseHTML.html", "w") as f:
+    with open(HTML_CURRENT_FILENAME, "w") as f:
         f.write(driver.page_source)
 
     newJobs = parsePage(driver.page_source, jobIdCnt)
-    saveToJSON(newJobs, JSON_PARSED_FILENAME)
-
     return newJobs
 
 
-def jobLoop(jobs, jobIdCnt):
-    jobIdN = 0
+def applyJob(jobJSON, driver):
+    applyButton = waitToLoad(By.CLASS_NAME, "jobs-apply-button", driver)
+    if applyButton is None:
+        return None
 
+    textArea = waitToLoad(By.ID, "job-details", driver)
+    if textArea is None:
+        return None
+
+    language = detect(textArea.text)
+    jobJSON['language'] = language
+
+    if jobJSON['applyMethod'] == 'Easy Apply':
+        jobJSON['applyLink'] = "N/A"
+        jobJSON['applyStatus'] = "Applied"
+    else:
+        original_window = driver.current_window_handle
+        print("Opening external site")
+        applyButton.click()
+        WebDriverWait(driver, 10).until(EC.number_of_windows_to_be(2))
+        for window_handle in driver.window_handles:
+            if window_handle != original_window:
+                driver.switch_to.window(window_handle)
+                break
+        
+        waitToLoad(By.TAG_NAME, "body", driver)
+        sleep(2)
+        externalUrl = driver.current_url
+        print("Retrieving external URL")
+        driver.close()
+        driver.switch_to.window(original_window)
+        print("Closing new window and switching to old")
+
+        sleep(2)
+
+        jobJSON['applyLink'] = externalUrl
+        jobJSON['applyStatus'] = "Pending"
+
+    return jobJSON
+        
+
+def jobLoop(firstJobHandle, jobIdCnt, driver, jobLoopCnt):
+    jobsParsed = newPageLoaded(firstJobHandle, jobIdCnt, driver)
+    jobsElement = driver.find_elements(By.CLASS_NAME, "jobs-search-results__list-item")
+
+    for i in range(len(jobsParsed)):
+        job = jobsParsed[i]
+        print(f"Applying to jobId: {job['id']}")
+
+        ActionChains(driver)\
+            .move_to_element(jobsElement[i])\
+            .click()\
+            .key_down(Keys.LEFT_SHIFT)\
+            .key_down(Keys.TAB)\
+            .key_up(Keys.TAB)\
+            .key_up(Keys.LEFT_SHIFT)\
+            .pause(0.2)\
+            .perform()
+
+        jobTemp = applyJob(job, driver)
+        if jobTemp is None:
+            return ERROR_EXIT
+        
+        job = jobTemp
+        
+        if job['id'] == 10:
+            break
+
+    if jobLoopCnt == 0:
+        saveToJSON(jobsParsed, JSON_PARSED_FILENAME, True)
+        jobIdCnt = 0
+    else:
+        saveToJSON(jobsParsed, JSON_PARSED_FILENAME)
+        jobIdCnt += len(jobsParsed)
+    
+    return SUCESS_EXIT
 
 def main():
     profile = FirefoxProfile('./profile/')
     with webdriver.Firefox(profile) as driver:
         print(f"Opening browser")
         driver.get(LINKEDIN_URL)
-
         search_bar = waitToLoad(By.CLASS_NAME, 'jobs-search-box__text-input', driver)
         if search_bar is None:
             return ERROR_EXIT
@@ -195,14 +270,9 @@ def main():
         if first_job is None:
             return ERROR_EXIT
         
-        jobIdCnt = 0
-        jobsParsed = newPageLoaded(first_job, jobIdCnt, driver)
-        jobIdCnt = len(jobsParsed)
-
-        jobLoop(jobsParsed, jobIdCnt)
-
+        exitCode = jobLoop(first_job, 0, driver, 0)
         sleep(10)
-    return SUCESS_EXIT
+        return exitCode
 
 
 if __name__ == '__main__':
