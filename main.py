@@ -1,151 +1,87 @@
-import webbrowser
-import pyautogui as pygui
+from selenium import webdriver
+from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
+from selenium.webdriver import Keys, ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
+
 from time import sleep
-import numpy as np
-import cv2 as cv
-import os
 from bs4 import BeautifulSoup
 import json
-import pytesseract
+from os import rename
 from langdetect import detect
 
-from selenium import webdriver
-
-# f_AL=true means it's only showing easy apply jobs
 LINKEDIN_URL = "https://www.linkedin.com/jobs/search/?"
 LINKEDIN_EASY_APPLY_TAG = "f_AL=true"
-IMAGES_FOLDER = "imgs/"
-FIRST_LOAD_MATCH = "contextMenu.png"
-SEARCH_ICON = "searchIcon.png"
-JOB_LOAD_BRIEFCASE = "jobLoadBrief.png"
-JOB_LOAD_EASY_APPLY = "jobLoadEasy.png"
-JOB_LOAD_EXTERNAL = "jobLoadExternal.png"
-# Podria ser la flecha y los 3 puntos o solicitar y guardar, sin embargo esos cambian de tama;o
-LOADED_SEARCH = "loadedSearch.png"
-CHECKBOX_LAST_PAGE = "checkboxEasy.png"
-NEXT_SEND_BUTTON = "buttonNext.png"
+LINKEDIN_START_JOB_TAG = "&start="
 
-HTML_PARSE_FILENAME = "parse"
-JSON_PARSED_FILENAME = "out"
-
-CAPTURE_MODIFIER_X = 0
-CAPTURE_MODIFIER_Y = 250
-CAPTURE_OFFSET_X = 500
-CAPTURE_OFFSET_Y = 200
+JSON_PARSED_FILENAME = "result.json"
+HTML_CURRENT_FILENAME = "parseHTML.html"
 
 SUCESS_EXIT = 0
 ERROR_EXIT = 1
 
-# Min confidence value for it not have false-positives and still detect even when there are notifications
-# would not recommend to go above 0.7 if there are notification globes
-def waitToLoad(template, _confidence=0.45):
-    times = 0
-    while times < 10:
-        screenCoords = pygui.locateOnScreen(template, confidence=_confidence)
-        times += 1
-        if(screenCoords is not None):
-            print("Loaded sucessfully!")
-            return True, screenCoords
-        else:
-            print(f"Loading...")
-            sleep(1)
 
-    print("Unable to load")
-    return False, screenCoords
+def waitToLoad(locator, locator_name, driver, delay=5):
+    item = ""
+    try:
+        print(f"Waiting to load")
+        item = WebDriverWait(driver, delay).until(EC.presence_of_element_located((locator, locator_name)))
+        print(f"Element has loaded")
+    except TimeoutException:
+        print(f"Unable to load in the alloted time {delay}")
+        return None
+    
+    sleep(0.2)
+    return item
 
-# We check if the file is being downloaded by size, treat possible error
-def waitDownload(file):
-    times = 0
-    filename = file + ".html"
-    size = 0
-    sizeThresh = 700000
-    while times < 10 and size < sizeThresh:
-        try:
-            if size != os.stat(filename).st_size:
-                print("File downloading...")
-                size = os.stat(filename).st_size
-            else:
-                print("File downloaded!")
-                return True
-        except OSError as e:
-            print("File downloading...")
-        sleep(1)
-        times += 1
 
-    print("Unable to download file")
-    return False 
-
-# Erase?
-def closeCurrentWindow():
-    pygui.hotkey('alt', 'f4')
-
-def searchJob(title, location=""):
+def searchJob(title, location, driver, search_bar):
     print(f"Searching jobs for \"{title}\" at \"{location}\"")
-    searchIcon = pygui.locateOnScreen(IMAGES_FOLDER+SEARCH_ICON, confidence=0.8)
-    if searchIcon is not None:
-        pygui.click(searchIcon[0], searchIcon[1])
-        pygui.typewrite(title)
-        pygui.press('tab')
-        pygui.typewrite(location)
-        pygui.press('enter')
-        sleep(0.5)
-        ssBefore = pygui.screenshot(region=(0,0,1920,1080))
-        waitToLoad(ssBefore, 0.90)
-        
-# Helper in case we need openCV
-def convertPIL2CV(_img):
-    img = np.array(_img)
-    return img[:,:,::-1].copy()
+    ActionChains(driver)\
+            .send_keys_to_element(search_bar, title)\
+            .pause(0.5)\
+            .send_keys(Keys.TAB)\
+            .pause(1)\
+            .send_keys(location)\
+            .send_keys(Keys.ENTER)\
+            .perform()
 
-def loadNSavePage():
-    print("Loading page for parsing")
-    # Always require three tab's because it gets us to the first element highlighted
-    # Positioned on first job title
-    pygui.press('tab', presses=3, interval=0.5)
+    sleep(2)
+    return waitToLoad(By.CLASS_NAME, "jobs-search-results__list-item", driver)
 
-    # Load all jobs on page so we can save and use the file
-    pygui.press('space', presses=5, interval=0.2)
-    # Get back up to the first job in selection
-    pygui.press('tab')
-    sleep(0.2)
-    pygui.hotkey('shift', 'tab')
-    sleep(0.2)
 
-    # Shortcut to save file, so we can parse and fill logs without neededing complicated image to text AI
-    pygui.hotkey('ctrl', 's')
-    sleep(0.2)
-    pygui.hotkey('alt', 'tab')
-    sleep(0.5)
-    pygui.hotkey('alt', 'tab')
-    sleep(0.5)
+def parsePage(src, jobId):
+    print(f"Parsing page...")
+    soup = BeautifulSoup(src, 'html.parser')
 
-    # Save file with name, check if we need to replace previous since this is done once per page load
-    # Open file directly with name so we don't need to check if it exists since we just created it, or truncated it
-    file = open(HTML_PARSE_FILENAME+".html", 'w')
-    file.close()
-    pygui.typewrite(HTML_PARSE_FILENAME)
-    pygui.press('enter', 2, interval=0.8)
-
-    waitDownload(HTML_PARSE_FILENAME)
-    # Sum screen blue pixels to know when button is ready?
-    print(f"Page loaded and saved as {HTML_PARSE_FILENAME} for parsing")
-
-def parseHTML(jobId):
-    with open(HTML_PARSE_FILENAME+".html") as file:
-        soup = BeautifulSoup(file, 'html.parser')
-
-    jobsSet = soup.find_all("li", class_="jobs-search-results__list-item")
+    # Get all the jobs
+    jobsHTML = soup.find_all("li", class_="jobs-search-results__list-item")
     jobsParsed = list()
-    for job in jobsSet:
-        jobParsed = dict()
+    for job in jobsHTML:
+        # Create a dictionary as to simulate JSON object
+        jobParsed = {"id": "", "jobTitle" : "", "companyName" : "", "location" : "", "applyMethod" : "", "workType" : "", "language": "", "applyLink": "", "applyStatus": "", "jobLink" : "", "companyLink" : "", "jobId": "","applicantCount" : ""}
+
         title = job.find_all("a", class_="job-card-list__title")
         if(len(title) > 0):
-            jobParsed.update({"linkJob": title[0]['href']})
+            jobParsed.update({"jobLink": title[0]['href']})
             jobParsed.update({"jobTitle": title[0].string.strip()})
         
-        bName = job.find_all("a", class_="job-card-container__company-name")
-        if(len(bName) > 0):
-            jobParsed.update({"companyName": bName[0].string.strip()})
+        companyName = job.find_all("a", class_="job-card-container__company-name")
+        if(len(companyName) > 0):
+            jobParsed.update({"companyLink": companyName[0]['href']})
+            jobParsed.update({"companyName": companyName[0].string.strip()})
+
+        easyApply = job.find_all("li-icon", "mr1")
+        if(len(easyApply) > 0):
+            jobParsed.update({"applyMethod": "Easy Apply"})
+        else:
+            jobParsed.update({"applyMethod": "External"})
+
+        jobInternalId = job.find_all("div", class_="job-card-list")
+        if(len(jobInternalId) > 0):
+            jobParsed.update({"jobId": jobInternalId[0]['data-job-id']})
 
         metadata = job.find_all("li")
         for m in metadata:
@@ -167,124 +103,407 @@ def parseHTML(jobId):
         if len(jobParsed) != 0:
             jobParsed.update({"id": jobId})
             jobId += 1
-            jobsParsed.append(jobParsed)            
-            
+            jobsParsed.append(jobParsed) 
+
+
+    print(f"Page parsed with {len(jobsParsed)} jobs")
     return jobsParsed
 
-def saveToJSON(jobs, filename):
-    jsonJobs = json.dumps(jobs, indent="\n")
 
-    with open(filename+".json", "w") as f:
-        f.write(jsonJobs)
+def saveToJSON(jobs, filename, new=False, backup=False):   
+    print(f"Saving new jobs to {filename}")
 
-# Es de 1 o varias paginas? Barra de arriba con el porcentaje (si es de una pagina no lo hay) al picar en la segunda si es el caso
-# Quitar checkbox de seguir a la empresa. Checkbox solo aparece en la ultima pagina?
+    if new:
+        print(f"Creating new file")
+        f = open(filename, "w")
+        f.close()
 
-# Elegir cv correcto en base al lenguaje
-# Verificar que todas tengan respuestas
-# Enviar solicitud
-def navEasyApplyMenu(lang):
-    lastPage = False
-    # while not lastPage:
-    #     for i in range(10):
-    #         pygui.press('tab')
-    #     coords = pygui.locateOnScreen(IMAGES_FOLDER+CHECKBOX_LAST_PAGE, confidence=0.8)
-    #     # Last page behavior
-    #     if coords is None:
-    #     # Page behavior
-    #     else:
+    jobsFile = ""
+    try:
+        with open(filename, "r") as f:
+            jobsFile = json.load(f)
+    except FileNotFoundError:
+        print(f"File doesn't exist, creating a new file with the name {filename}")
+        f = open(filename, "w")
+        f.close()
+    except json.JSONDecodeError:
+        print(f"Existing file does not contain a valid JSON object, overwriting file")
+    
 
-    #     lastPage = True
+    if jobsFile == "":
+        jsonJobs = json.dumps(jobs, ensure_ascii=False)
 
+        with open(filename, "w") as f:
+            f.write(jsonJobs)
+    else:
+        for job in jobs:
+            jobsFile.append(job)
+
+        jsonJobs = json.dumps(jobsFile, ensure_ascii=False)
+        if(backup):
+            print(f"Doing a backup of {filename} to {filename+'.old'}")
+            rename(filename, filename+".old")
+
+        with open(filename, "w") as f:
+            f.write(jsonJobs)
+
+    print(f"New jobs saved to {filename}")
+        
+
+def newPageLoaded(jobElement, jobIdCnt, driver):
+    print(f"Scanning page")
+    ActionChains(driver)\
+        .move_to_element(jobElement)\
+        .click()\
+        .key_down(Keys.LEFT_SHIFT)\
+        .key_down(Keys.TAB)\
+        .key_up(Keys.TAB)\
+        .key_up(Keys.LEFT_SHIFT)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .key_down(Keys.LEFT_SHIFT)\
+        .key_down(Keys.TAB)\
+        .key_up(Keys.TAB)\
+        .key_up(Keys.LEFT_SHIFT)\
+        .pause(0.2)\
+        .send_keys(Keys.TAB)\
+        .perform()
+
+    sleep(2)
+    print(f"Page scanned")
+
+    with open(HTML_CURRENT_FILENAME, "w") as f:
+        f.write(driver.page_source)
+
+    newJobs = parsePage(driver.page_source, jobIdCnt)
+    return newJobs
+
+# Can Upsell or just confirmation page
+def canContinue(driver):
+    sleep(0.5)
+    print("Checking for post-apply LinkedinPremium or post-apply confirmation")
+    body = waitToLoad(By.TAG_NAME, "body", driver)
+    if body is None:
+        return False
+
+    closeWindow = waitToLoad(By.CLASS_NAME, "artdeco-modal__dismiss", driver)
+    # Upsell existing
+    if closeWindow is None:
+        return False
+
+    ActionChains(driver)\
+        .move_to_element(closeWindow)\
+        .pause(0.2)\
+        .click()\
+        .pause(0.5)\
+        .perform()
 
     return True
 
-def apply2Job(job, loadIndicator1):
-    pygui.press('enter')
-    sleep(1)
-    waitToLoad(IMAGES_FOLDER + loadIndicator1, 0.9)
 
-    easyApply = True
-    coords = pygui.locateOnScreen(IMAGES_FOLDER + JOB_LOAD_EASY_APPLY, confidence=0.8)
-    if coords is None:
-        coords = pygui.locateOnScreen(IMAGES_FOLDER + JOB_LOAD_EXTERNAL, confidence=0.8)
-        if coords is None:
-            print("Unable to apply")
-            return False, None
-        else:
-            easyApply = False
+def easyApplyOnePage(lang, driver):
+    if not (lang == "en" or lang == "es" or lang == "fr"):
+        lang = "en"
+
+    cv_driver = waitToLoad(By.CLASS_NAME, "artdeco-button--1", driver)
+    if cv_driver is None:
+        return None
+
+    cv_driver.click()
+    cv_picker = waitToLoad(By.CLASS_NAME, "jobs-resume-picker__resume-list", driver)
+    if cv_picker is None:
+        return None
     
-    # Ver la cantidad de tab que se requieren para llegar a solicitar, el color obscurece cuando esta en tab
-    if(easyApply):
-        coordsSS = (coords[0] + CAPTURE_MODIFIER_X, coords[1] + CAPTURE_MODIFIER_Y)
-        ss = pygui.screenshot(region=(coordsSS[0], coordsSS[1], coordsSS[0]+CAPTURE_OFFSET_X, coordsSS[1]+CAPTURE_OFFSET_Y))
-        text = pytesseract.image_to_string(ss)
-        lang = detect(text)
+    cv_names = driver.find_elements(By.CLASS_NAME, "jobs-resume-picker__resume-label")
+    index = -1
+    for i in range(len(cv_names)):
+        text = cv_names[i].text.lower()
 
-        # Center the click a little more
-        pygui.click(coords[0]+15, coords[1]+15)
-        res = navEasyApplyMenu(lang)       
+        if lang in text:
+            index = i
+            break
+    
+    cv_picker = driver.find_elements(By.CLASS_NAME, "artdeco-button--1")
+    cv_picker[i*2].click()    
 
-        job.update({'applyMethod': 'easy Apply'})
-        job.update({'languageDetected': lang})
-        job.update({'sentApplication': res})
+    ActionChains(driver)\
+        .send_keys(Keys.SPACE*10)\
+        .perform()
+    
+    follow_company = waitToLoad(By.ID, "follow-company-checkbox", driver)
+    if follow_company is None:
+        return None
+    
+    # Revise to send actual click on real
+    ActionChains(driver)\
+        .send_keys_to_element(follow_company, Keys.SPACE)\
+        .pause(0.2)\
+        .perform()
+    
+    send_application = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+    if send_application is None:
+        return None
+    
+    send_application.click()
+
+    return canContinue(driver)
+
+def gotoNextEasyApply(driver, element, cnt=0):
+    if cnt < 5:            
+        ActionChains(driver)\
+                .send_keys_to_element(element, Keys.ENTER)\
+                .perform()
+            
+        newModal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
+        if newModal is None:
+            return None
+        
+        wasError = waitToLoad(By.CLASS_NAME, "fb-form-element__error-text", driver, 3)
+        if wasError is not None:
+            # NEED TO INTRODUCE ANSWER
+            # Missing number
+            # Missing checkbox
+            # Missing selection
+            print("There is an answer missing, insert answers in browser")
+            input_ans = ""
+            while input_ans != "ok":
+                input_ans = input("Type \"ok\" when answers are registered: ")
+
+            sleep(0.5)
+            next_button = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+            if next_button is None:
+                return None
+
+            gotoNextEasyApply(driver, next_button, cnt+1)
+        
+        modal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
+        if modal is None:
+            return None
+
+        return True, modal
+
+    return False, None
+        
+
+def easyApplyMultiplePage(lang, modal, driver):
+    # Buscar boton siguiente mientras haya 100%
+    complete_percent = waitToLoad(By.TAG_NAME, "progress", driver)
+    if complete_percent is None:
+        return None
+    
+    percent = int(complete_percent.get_attribute('value'))
+    if percent != 100:
+        soup = BeautifulSoup(modal.get_attribute('innerHTML'), 'html.parser')
+        if len(soup.find_all('div', class_='jobs-document-upload__attachment')) > 0:
+            print("CV PAGE")
+            cv_driver = waitToLoad(By.CLASS_NAME, "artdeco-button--1", driver)
+            if cv_driver is None:
+                return None
+
+            cv_driver.click()
+            cv_picker = waitToLoad(By.CLASS_NAME, "jobs-resume-picker__resume-list", driver)
+            if cv_picker is None:
+                return None
+            
+            cv_names = driver.find_elements(By.CLASS_NAME, "jobs-resume-picker__resume-label")
+            index = -1
+            for i in range(len(cv_names)):
+                text = cv_names[i].text.lower()
+
+                if lang in text:
+                    index = i
+                    break
+            
+            cv_picker = driver.find_elements(By.CLASS_NAME, "artdeco-button--1")
+            cv_picker[i*2].click()    
+        
+        next_button = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+        if next_button is None:
+            return None
+
+        success, modal = gotoNextEasyApply(driver, next_button)
+        if not success:
+            return None
 
     else:
-        job.update({'applyMethod': 'external Page'})
-        # pygui.moveTo(coords[0], coords[1])
-        # pygui.keyDown('ctrl')
-        # pygui.click()
-        # pygui.keyUp('ctrl')
+        ActionChains(driver)\
+            .send_keys(Keys.SPACE*15)\
+            .perform()
 
-    # Go back to list and next job 
-    pygui.hotkey('shift', 'tab')
-    pygui.press('tab', presses=3)
+        sleep(0.5)
+        follow_company = waitToLoad(By.ID, "follow-company-checkbox", driver)
+        if follow_company is None:
+            return None
+        
+        # Revise to send actual click on real
+        ActionChains(driver)\
+            .move_to_element(follow_company)\
+            .click()\
+            .pause(0.2)\
+            .perform()
+        
+        send_application = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
+        if send_application is None:
+            return None
 
-    return True, job
+        send_application.click()
+        sleep(1)
+        return canContinue(driver)
+    
+    return easyApplyMultiplePage(lang, modal, driver)
+        
 
-def jobLoop():
-    jobIdN = 0
-    loadNSavePage()
+
+def applyJob(jobJSON, driver):
+    sleep(0.5)
+    applyButton = waitToLoad(By.CLASS_NAME, "jobs-apply-button", driver)
+    if applyButton is None:
+        alreadyApplied = waitToLoad(By.CLASS_NAME, "artdeco-inline-feedback--success", driver)
+        
+        if alreadyApplied is None:
+            return None
+        else:
+            print("Already applied to this job! Skipping")
+            jobJSON['applyStatus'] = "Repeated"
+            return jobJSON
+
+    textArea = waitToLoad(By.ID, "job-details", driver)
+    if textArea is None:
+        return None
+
+    language = detect(textArea.text)
+    jobJSON['language'] = language
+    
+    if jobJSON['applyMethod'] == 'Easy Apply':
+        ActionChains(driver)\
+            .move_to_element(applyButton)\
+            .click()\
+            .pause(0.5)\
+            .perform()
+
+        modal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
+        if modal is None:
+            return None
+
+        isClear = False
+        progress = waitToLoad(By.TAG_NAME, "progress", driver)
+        if progress is None:
+            print("Single page apply")
+            isClear = easyApplyOnePage(jobJSON['language'], driver)
+        else:
+            print("Multiple page apply")
+            isClear = easyApplyMultiplePage(jobJSON['language'], modal, driver)
+
+        if not isClear:
+            exit(ERROR_EXIT)
+            
+        jobJSON['applyLink'] = "N/A"
+        jobJSON['applyStatus'] = "Applied"
+    else:
+        original_window = driver.current_window_handle
+        print("Opening external site")
+        applyButton.click()
+        WebDriverWait(driver, 10).until(EC.number_of_windows_to_be(2))
+        for window_handle in driver.window_handles:
+            if window_handle != original_window:
+                driver.switch_to.window(window_handle)
+                break
+        
+        waitToLoad(By.TAG_NAME, "body", driver)
+        sleep(2)
+        externalUrl = driver.current_url
+        print("Retrieving external URL")
+        driver.close()
+        driver.switch_to.window(original_window)
+        print("Closing new window and switching to old")
+
+        sleep(2)
+
+        jobJSON['applyLink'] = externalUrl
+        jobJSON['applyStatus'] = "Pending"
+
+    return jobJSON
+        
+def jobLoop(firstJobHandle, jobIdCnt, driver):
+    jobsParsed = newPageLoaded(firstJobHandle, jobIdCnt, driver)
+    jobsElement = driver.find_elements(By.CLASS_NAME, "jobs-search-results__list-item")
+
+    for i in range(len(jobsParsed)):
+        job = jobsParsed[i]
+        print(f"Applying to jobId: {job['id']}")
+
+        ActionChains(driver)\
+            .move_to_element(jobsElement[i])\
+            .click()\
+            .key_down(Keys.LEFT_SHIFT)\
+            .key_down(Keys.TAB)\
+            .key_up(Keys.TAB)\
+            .key_up(Keys.LEFT_SHIFT)\
+            .pause(0.2)\
+            .perform()
+
+        jobTemp = applyJob(job, driver)
+        if jobTemp is None:
+            return ERROR_EXIT
+        
+        job = jobTemp
+        
+    if jobIdCnt == 0:
+        saveToJSON(jobsParsed, JSON_PARSED_FILENAME, True)
+    else:
+        saveToJSON(jobsParsed, JSON_PARSED_FILENAME)
+
+    
+    # Change window to searchParam =jobIdCnt
+    # Call waitToLoad(By.CLASS_NAME, "jobs-search-results__list-item", driver)
+    # len == 0 nono page exit
+    # len > 0 allowjobLoop
+    url = str(driver.current_url)
+    newUrl = url
+    if LINKEDIN_START_JOB_TAG+str(jobIdCnt) in url:
+        # Change only number which should be last digits
+        newUrl = url.split(LINKEDIN_START_JOB_TAG+str(jobIdCnt))[0]
+
+    jobIdCnt += len(jobsParsed)
+    print("Searching for next page of jobs")
+    driver.get(newUrl+LINKEDIN_START_JOB_TAG+str(jobIdCnt))
+
     sleep(1)
-    jobs = parseHTML(jobIdN)
-    jobIdN += len(jobs)
-    # Escape from download menu that pops-up
-    pygui.press('esc', interval=0.2)
+    newJobs = waitToLoad(By.CLASS_NAME, "jobs-search-results__list-item", driver)
+    if newJobs is not None:
+        print("Next page has loaded, applying in new page")
+        jobLoop(newJobs, jobIdCnt, driver)
 
-    i = 0
-    for job in jobs:
-        stat, job = apply2Job(job, JOB_LOAD_BRIEFCASE)
-        if stat is False:
-            break
-
-        i = i + 1
-        if(i > 0):
-            break
-
-    saveToJSON(jobs, JSON_PARSED_FILENAME)
+    return SUCESS_EXIT
 
 def main():
-    # Add Win+D or minimize all?
+    profile = FirefoxProfile('./profile/')
+    with webdriver.Firefox(profile) as driver:
+        print(f"Opening browser")
+        driver.get(LINKEDIN_URL+LINKEDIN_EASY_APPLY_TAG)
+        search_bar = waitToLoad(By.CLASS_NAME, 'jobs-search-box__text-input', driver)
+        if search_bar is None:
+            return ERROR_EXIT
 
-    webbrowser.open(LINKEDIN_URL, new=True, autoraise=True)
-
-    sucess, res = waitToLoad(IMAGES_FOLDER + FIRST_LOAD_MATCH)
-    if(not sucess):
-        print("Error! Could not load page")
-        exit(ERROR_EXIT)
-    
-    searchJob("frontend", "canada")
-
-    sucess, res = waitToLoad(IMAGES_FOLDER + LOADED_SEARCH, 0.85)
-    if(not sucess):
-        print("Error! Could not find match!")
-        exit(ERROR_EXIT)
-
-    jobLoop()
-
-    # closeCurrentWindow()
-    exit(SUCESS_EXIT)
+        first_job = searchJob("software dev", "Guadalajara", driver, search_bar)
+        if first_job is None:
+            return ERROR_EXIT
+        
+        exitCode = jobLoop(first_job, 0, driver)
+        sleep(10)
+        return exitCode
 
 
 if __name__ == '__main__':
-    main()
+    exit_code = main()
+    print(f"Exiting program with exit code {exit_code}")
+    exit(exit_code)
