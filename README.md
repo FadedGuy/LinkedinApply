@@ -24,5 +24,4 @@ TODO
 
 TODO
 Modularizar
-Mejorar json output
-waitDownload
+verbosity waittodownload

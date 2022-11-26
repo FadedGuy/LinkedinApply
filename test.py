@@ -14,6 +14,7 @@ from langdetect import detect
 
 LINKEDIN_URL = "https://www.linkedin.com/jobs/search/?"
 LINKEDIN_EASY_APPLY_TAG = "f_AL=true"
+LINKEDIN_START_JOB_TAG = "&start="
 
 JSON_PARSED_FILENAME = "result.json"
 HTML_CURRENT_FILENAME = "parseHTML.html"
@@ -22,7 +23,7 @@ SUCESS_EXIT = 0
 ERROR_EXIT = 1
 
 
-def waitToLoad(locator, locator_name, driver, delay=10):
+def waitToLoad(locator, locator_name, driver, delay=5):
     item = ""
     try:
         print(f"Waiting to load")
@@ -32,7 +33,7 @@ def waitToLoad(locator, locator_name, driver, delay=10):
         print(f"Unable to load in the alloted time {delay}")
         return None
     
-    sleep(2)
+    sleep(0.2)
     return item
 
 
@@ -158,11 +159,17 @@ def newPageLoaded(jobElement, jobIdCnt, driver):
         .key_down(Keys.TAB)\
         .key_up(Keys.TAB)\
         .key_up(Keys.LEFT_SHIFT)\
-        .pause(0.5)\
-        .send_keys(Keys.SPACE*2)\
-        .pause(1)\
-        .send_keys(Keys.SPACE*3)\
-        .pause(1)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
+        .send_keys(Keys.SPACE)\
+        .pause(0.8)\
         .key_down(Keys.LEFT_SHIFT)\
         .key_down(Keys.TAB)\
         .key_up(Keys.TAB)\
@@ -226,8 +233,6 @@ def easyApplyOnePage(lang, driver):
             break
     
     cv_picker = driver.find_elements(By.CLASS_NAME, "artdeco-button--1")
-    print(index)
-    print(len(cv_picker))
     cv_picker[i*2].click()    
 
     ActionChains(driver)\
@@ -252,7 +257,7 @@ def easyApplyOnePage(lang, driver):
 
     return canContinue(driver)
 
-def gotoNextPage(driver, element, cnt=0):
+def gotoNextEasyApply(driver, element, cnt=0):
     if cnt < 5:            
         ActionChains(driver)\
                 .send_keys_to_element(element, Keys.ENTER)\
@@ -278,7 +283,7 @@ def gotoNextPage(driver, element, cnt=0):
             if next_button is None:
                 return None
 
-            gotoNextPage(driver, next_button, cnt+1)
+            gotoNextEasyApply(driver, next_button, cnt+1)
         
         modal = waitToLoad(By.CLASS_NAME, "jobs-easy-apply-content", driver)
         if modal is None:
@@ -319,15 +324,13 @@ def easyApplyMultiplePage(lang, modal, driver):
                     break
             
             cv_picker = driver.find_elements(By.CLASS_NAME, "artdeco-button--1")
-            print(index)
-            print(len(cv_picker))
             cv_picker[i*2].click()    
         
         next_button = waitToLoad(By.CLASS_NAME, "artdeco-button--primary", driver)
         if next_button is None:
             return None
 
-        success, modal = gotoNextPage(driver, next_button)
+        success, modal = gotoNextEasyApply(driver, next_button)
         if not success:
             return None
 
@@ -343,7 +346,8 @@ def easyApplyMultiplePage(lang, modal, driver):
         
         # Revise to send actual click on real
         ActionChains(driver)\
-            .send_keys_to_element(follow_company, Keys.SPACE)\
+            .move_to_element(follow_company)\
+            .click()\
             .pause(0.2)\
             .perform()
         
@@ -360,16 +364,17 @@ def easyApplyMultiplePage(lang, modal, driver):
 
 
 def applyJob(jobJSON, driver):
-    sleep(1)
+    sleep(0.5)
     applyButton = waitToLoad(By.CLASS_NAME, "jobs-apply-button", driver)
-    alreadyApplied = waitToLoad(By.CLASS_NAME, "artdeco-inline-feedback--success", driver)
-    if applyButton is None and alreadyApplied is None:
-        return None
-    
     if applyButton is None:
-        print("Already applied to this job! Skipping")
-        jobJSON['applyStatus'] = "Repeated"
-        return jobJSON
+        alreadyApplied = waitToLoad(By.CLASS_NAME, "artdeco-inline-feedback--success", driver)
+        
+        if alreadyApplied is None:
+            return None
+        else:
+            print("Already applied to this job! Skipping")
+            jobJSON['applyStatus'] = "Repeated"
+            return jobJSON
 
     textArea = waitToLoad(By.ID, "job-details", driver)
     if textArea is None:
@@ -428,7 +433,7 @@ def applyJob(jobJSON, driver):
 
     return jobJSON
         
-def jobLoop(firstJobHandle, jobIdCnt, driver, jobLoopCnt):
+def jobLoop(firstJobHandle, jobIdCnt, driver):
     jobsParsed = newPageLoaded(firstJobHandle, jobIdCnt, driver)
     jobsElement = driver.find_elements(By.CLASS_NAME, "jobs-search-results__list-item")
 
@@ -452,16 +457,32 @@ def jobLoop(firstJobHandle, jobIdCnt, driver, jobLoopCnt):
         
         job = jobTemp
         
-        if job['id'] == 10:
-            break
-
-    if jobLoopCnt == 0:
+    if jobIdCnt == 0:
         saveToJSON(jobsParsed, JSON_PARSED_FILENAME, True)
-        jobIdCnt = 0
     else:
         saveToJSON(jobsParsed, JSON_PARSED_FILENAME)
-        jobIdCnt += len(jobsParsed)
+
     
+    # Change window to searchParam =jobIdCnt
+    # Call waitToLoad(By.CLASS_NAME, "jobs-search-results__list-item", driver)
+    # len == 0 nono page exit
+    # len > 0 allowjobLoop
+    url = str(driver.current_url)
+    newUrl = url
+    if LINKEDIN_START_JOB_TAG+str(jobIdCnt) in url:
+        # Change only number which should be last digits
+        newUrl = url.split(LINKEDIN_START_JOB_TAG+str(jobIdCnt))[0]
+
+    jobIdCnt += len(jobsParsed)
+    print("Searching for next page of jobs")
+    driver.get(newUrl+LINKEDIN_START_JOB_TAG+str(jobIdCnt))
+
+    sleep(1)
+    newJobs = waitToLoad(By.CLASS_NAME, "jobs-search-results__list-item", driver)
+    if newJobs is not None:
+        print("Next page has loaded, applying in new page")
+        jobLoop(newJobs, jobIdCnt, driver)
+
     return SUCESS_EXIT
 
 def main():
@@ -473,11 +494,11 @@ def main():
         if search_bar is None:
             return ERROR_EXIT
 
-        first_job = searchJob("software", "Guadalajara", driver, search_bar)
+        first_job = searchJob("software dev", "Guadalajara", driver, search_bar)
         if first_job is None:
             return ERROR_EXIT
         
-        exitCode = jobLoop(first_job, 0, driver, 0)
+        exitCode = jobLoop(first_job, 0, driver)
         sleep(10)
         return exitCode
 
