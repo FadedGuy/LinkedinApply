@@ -1,27 +1,14 @@
 LinkedIn Apply Bot
 
-profile dir created and open to locally use only that instance and have not other access
+Useful bot when applying to jobs in LinkedIn.
+Check it out and give me your insights :)
 
-time
-bs4
-json
-selenium
+# Use
+To use it this bot you need:
+- Install the geckodriver for Firefox
+- After installing, launch it, create a new profile in the same directory as this project and sign in to your LinkedIn account
+- Install the modules requiered for this project, you can find them in the [requirement.txt] (./requirements.txt) file.
+- Change the job title and job location by changing it in the script
 
-Pasos
-1. Abrir la pagina de linkedin empleos desde el navegador predeterminado, evitando tener que meter claves y demas
-2. Escanear por simbolo de busqueda, entrar el titulo de trabajo 
-2.a Escanear por simbolo de ubicacion, entrar la ubicacion | Tabulador para cambiar automaticamente cambiar
-TODO
-3. Ver lista de empleos
-3.a Determinar si es solicitud sencilla, solicitud dentro de Linkedin, solicitud externa
-3.b Solicitud sencilla ez check
-3.c Solicitud dentro y externa agregar a archivo externo 
-4. Click en empleo por empleo
-5. Aplicacion al empleo
-6. Manejo de archivo externo para ver el progreso del bot y lo que ha hecho
-7...
-
-
-TODO
-Modularizar
-verbosity waittodownload
+## Notes
+- When an answer is not registered, you will be asked to input said answer and type ok in the terminal

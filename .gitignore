@@ -4,3 +4,4 @@
 *.log
 geckodriver
 /profile
+__pycache__/
